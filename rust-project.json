@@ -1,0 +1,56 @@
+{
+  "sysroot_src": "/home/petru/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library",
+  "crates": [
+    {
+      "display_name": "core",
+      "root_module": "/home/petru/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/sr1c/lib.rs",
+      "edition": "2024",
+      "deps": []
+    },
+    {
+      "display_name": "alloc",
+      "root_module": "/home/petru/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/alloc/src/lib.rs",
+      "edition": "2024",
+      "deps": [
+        {
+          "crate": 0,
+          "name": "core"
+        }
+      ]
+    },
+    {
+      "display_name": "std",
+      "root_module": "/home/petru/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/lib.rs",
+      "edition": "2024",
+      "deps": [
+        {
+          "crate": 0,
+          "name": "core"
+        },
+        {
+          "crate": 1,
+          "name": "alloc"
+        }
+      ]
+    },
+    {
+      "display_name": "myshell",
+      "root_module": "myshell.rs",
+      "edition": "2024",
+      "deps": [
+        {
+          "crate": 0,
+          "name": "core"
+        },
+        {
+          "crate": 1,
+          "name": "alloc"
+        },
+        {
+          "crate": 2,
+          "name": "std"
+        }
+      ]
+    }
+  ]
+}
