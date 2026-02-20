@@ -51,6 +51,25 @@
           "name": "std"
         }
       ]
+    },
+    {
+      "display_name": "ast",
+      "root_module": "ast.rs",
+      "edition": "2024",
+      "deps": [
+        {
+          "crate": 0,
+          "name": "core"
+        },
+        {
+          "crate": 1,
+          "name": "alloc"
+        },
+        {
+          "crate": 2,
+          "name": "std"
+        }
+      ]
     }
   ]
 }
