@@ -1,0 +1,7 @@
+FromIterator<(EF, EE, ED, EC, EB, EA)>
+FromIterator<(EG, EF, EE, ED, EC, EB, EA)>
+FromIterator<(EH, EG, EF, EE, ED, EC, EB, EA)>
+FromIterator<(EI, EH, EG, EF, EE, ED, EC, EB, EA)>
+FromIterator<(EJ, EI, EH, EG, EF, EE, ED, EC, EB, EA)>
+FromIterator<(EK, EJ, EI, EH, EG, EF, EE, ED, EC, EB, EA)>
+FromIterator<(EL, EK, EJ, EI, EH, EG, EF, EE, ED, EC, EB, EA)>

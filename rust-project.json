@@ -70,6 +70,25 @@
           "name": "std"
         }
       ]
+    },
+    {
+      "display_name": "lexer",
+      "root_module": "lexer.rs",
+      "edition": "2024",
+      "deps": [
+        {
+          "crate": 0,
+          "name": "core"
+        },
+        {
+          "crate": 1,
+          "name": "alloc"
+        },
+        {
+          "crate": 2,
+          "name": "std"
+        }
+      ]
     }
   ]
 }
