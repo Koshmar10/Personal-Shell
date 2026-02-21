@@ -12,7 +12,7 @@
 //     └── 3
 // 1 + (2 - 3)
 //
-use std::{collections::HashMap, env};
+use std::{collections::HashMap, env, process::exit};
 
 const OPERANDS: [&str; 4] = ["+", "-", "/", "*"];
 const DELIMITERS: [&str; 2] = ["(", ")"];
@@ -24,12 +24,22 @@ pub enum OpType {
     Divide(u8),
     Subtract(u8),
 }
+impl OpType {
+    pub fn get_priority(&self) -> u8 {
+        match self {
+            OpType::Add(a) => return *a,
+            OpType::Divide(a) => return *a,
+            OpType::Multiply(a) => return *a,
+            OpType::Subtract(a) => return *a,
+        }
+    }
+}
 // tokenization data structuire
 #[derive(Debug, Clone)]
 pub enum Token {
     Op(OpType),
     Delimiter(String),
-    Lit(u32),
+    Lit(i32),
 }
 impl Token {
     pub fn get_op(&self) -> OpType {
@@ -46,15 +56,34 @@ pub enum Expr {
         op: OpType,
         right: Box<Expr>,
     },
-    Lit(u32),
+    Lit(i32),
 }
 
 fn main() {
     let op_priority = build_proirity_map();
+
     let args: Vec<String> = env::args().collect();
+
     let tokens = tokenizer(&args[1], &op_priority);
-    let exp = parse_expression(&tokens[0..]);
-    print_expression(&exp, "".to_string(), false, true);
+
+    let mode = args.get(2);
+    if let Some(mode) = mode {
+        let m = mode.as_str();
+        let exp = parse_expression(&tokens[0..]);
+
+        match m {
+            "-p" | "--print" => {
+                print_expression(&exp, "".to_string(), false, true);
+            }
+            "-e" | "--eval" => {
+                let eval = eval_expression(&exp);
+                print!("Result: {}", eval);
+            }
+            _ => {}
+        }
+    } else {
+        exit(1);
+    }
 }
 
 fn build_proirity_map() -> HashMap<&'static str, OpType> {
@@ -87,7 +116,7 @@ fn tokenizer(input_expression: &str, op_priority: &HashMap<&'static str, OpType>
             tokens.push(Token::Delimiter(chunk.clone()));
         } else {
             if !chunk.contains(" ") {
-                tokens.push(Token::Lit(chunk.parse::<u32>().unwrap()));
+                tokens.push(Token::Lit(chunk.parse::<i32>().unwrap()));
             }
         }
     }
@@ -99,54 +128,46 @@ fn parse_expression(tokens: &[Token]) -> Expr {
     if tokens.len() == 1 {
         match tokens[0] {
             Token::Lit(val) => return Expr::Lit(val),
-            _ => panic!("trebuia literala"),
+            _ => panic!("Expected literal, found {:?}", tokens[0]),
         }
-    } else {
-        let mut pivot = 0;
-        let mut current_max = 0;
-        for (i, token) in tokens.iter().enumerate() {
-            match token {
-                Token::Op(kind) => match kind {
-                    OpType::Add(pr) => {
-                        if *pr > current_max {
-                            current_max = *pr;
-                            pivot = i;
-                        }
-                    }
-                    OpType::Multiply(pr) => {
-                        if *pr > current_max {
-                            current_max = *pr;
-                            pivot = i;
-                        }
-                    }
-                    OpType::Divide(pr) => {
-                        if *pr > current_max {
-                            current_max = *pr;
-                            pivot = i;
-                        }
-                    }
-                    OpType::Subtract(pr) => {
-                        if *pr > current_max {
-                            current_max = *pr;
-                            pivot = i;
-                        }
-                    }
-                },
-                _ => {}
-            }
-        }
+    }
 
+    let mut paranthess_level = 0;
+    let mut pivot: Option<usize> = None;
+    let mut current_max: u8 = 0;
+
+    for (i, token) in tokens.iter().enumerate() {
+        match token {
+            Token::Delimiter(d) if d == "(" => paranthess_level += 1,
+            Token::Delimiter(d) if d == ")" => paranthess_level -= 1,
+            Token::Op(kind) if paranthess_level == 0 => {
+                let pr = kind.get_priority();
+                if pr >= current_max {
+                    current_max = pr;
+                    pivot = Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(idx) = pivot {
         return Expr::Binary {
-            left: Box::new(parse_expression(&tokens[0..pivot])),
-            op: tokens[pivot].get_op(),
-            right: Box::new(parse_expression(&tokens[pivot + 1..])),
+            left: Box::new(parse_expression(&tokens[0..idx])),
+            op: tokens[idx].get_op(),
+            right: Box::new(parse_expression(&tokens[idx + 1..])),
         };
     }
+
+    if tokens.len() >= 2 && matches!(&tokens[0], Token::Delimiter(d) if d == "(") {
+        return parse_expression(&tokens[1..tokens.len() - 1]);
+    }
+
+    panic!("Parse error at tokens: {:?}", tokens);
 }
 
 fn print_expression(expr: &Expr, indent: String, is_last: bool, is_first: bool) {
-    
-    let mut marker = "  ";
+    let mut marker = "│  ";
     if !is_first {
         marker = if is_last { "└─" } else { "├─" };
     }
@@ -164,15 +185,34 @@ fn print_expression(expr: &Expr, indent: String, is_last: bool, is_first: bool) 
             };
             println!("{}{}{}", indent, marker, op_char);
 
-           
             let new_indent = if is_last {
                 format!("{}  ", indent)
             } else {
-                format!("{}  ", indent)
+                format!("{}│  ", indent)
             };
 
             print_expression(left, new_indent.clone(), false, false);
             print_expression(right, new_indent, true, false);
         }
+    }
+}
+
+fn eval_expression(expr: &Expr) -> i32 {
+    match expr {
+        Expr::Lit(v) => return *v,
+        Expr::Binary { left, op, right } => match op {
+            OpType::Add(_) => {
+                return eval_expression(left) + eval_expression(right);
+            }
+            OpType::Divide(_) => {
+                return eval_expression(left) / eval_expression(right);
+            }
+            OpType::Multiply(_) => {
+                return eval_expression(left) * eval_expression(right);
+            }
+            OpType::Subtract(_) => {
+                return eval_expression(left) - eval_expression(right);
+            }
+        },
     }
 }
