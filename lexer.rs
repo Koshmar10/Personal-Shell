@@ -7,7 +7,13 @@ use std::io::Write;
 use std::path::Iter;
 
 #[derive(Debug, Clone)]
+pub enum TokenType {
+    Number,
+    ID,
+}
+#[derive(Debug, Clone)]
 pub enum GrammerPart {
+    Base(TokenType),
     Terminal(String),
     NonTerminal(String),
     Choice(Vec<Vec<GrammerPart>>),
@@ -39,6 +45,29 @@ impl Default for Grammer {
         }
     }
 }
+
+#[derive(Debug)]
+pub enum Token {
+    Symbol(String),
+    Number(String),
+    ID(String),
+}
+impl Token {
+    pub fn get_value(&self) -> String {
+        match self {
+            Token::Symbol(val) => val.clone(),
+            Token::Number(val) => val.clone(),
+            Token::ID(val) => val.clone(),
+        }
+    }
+}
+#[derive(Debug, Clone)]
+pub struct AstNode {
+    pub rule_name: String,
+    pub value: Option<String>,
+    pub children: Vec<AstNode>,
+}
+
 pub fn consume_until(chars: &mut impl Iterator<Item = char>, until: char) -> String {
     let mut accumulator = String::new();
     while let Some(c) = chars.next() {
@@ -114,10 +143,21 @@ pub fn build_grammer(grammer_str: &mut String) -> Option<Grammer> {
             if grammer.start_rule.is_empty() {
                 grammer.start_rule = rule_name.clone();
             }
-            let mut rule_str = rule_str.trim().chars();
+            let mut rule_str = rule_str.trim();
             let grammer_rule = Rule {
                 name: rule_name.clone(),
-                parts: parse_rule(&mut rule_str),
+                parts: {
+                    let trimmed_rule = rule_str.trim();
+
+                    if trimmed_rule == "STRING" {
+                        vec![GrammerPart::Base(TokenType::ID)]
+                    } else if trimmed_rule == "NUMBER" {
+                        vec![GrammerPart::Base(TokenType::Number)]
+                    } else {
+                        let mut char_iter = rule_str.chars().peekable();
+                        parse_rule(&mut char_iter)
+                    }
+                },
             };
             grammer.rules.insert(rule_name, grammer_rule);
         } else {
@@ -128,14 +168,146 @@ pub fn build_grammer(grammer_str: &mut String) -> Option<Grammer> {
     Some(grammer)
 }
 
+pub fn lex(grammar: &Grammer, expression: String) -> Vec<Token> {
+    let mut tokens = Vec::new();
+
+    let mut terminals: Vec<String> = grammar.terminals.iter().cloned().collect();
+
+    terminals.sort_by(|a, b| b.len().cmp(&a.len()));
+
+    let mut chars = expression.chars().peekable();
+
+    while let Some(&ch) = chars.peek() {
+        if ch.is_whitespace() {
+            chars.next();
+            continue;
+        }
+
+        let mut matched_terminal = false;
+        let remaining_str: String = chars.clone().collect();
+
+        for term in &terminals {
+            if remaining_str.starts_with(term) {
+                tokens.push(Token::Symbol(term.clone()));
+                for _ in 0..term.len() {
+                    chars.next();
+                }
+                matched_terminal = true;
+                break;
+            }
+        }
+
+        if matched_terminal {
+            continue;
+        }
+
+        if ch.is_ascii_digit() {
+            let mut number = String::new();
+            while let Some(&c) = chars.peek() {
+                if c.is_ascii_digit() {
+                    number.push(chars.next().unwrap());
+                } else {
+                    break;
+                }
+            }
+            tokens.push(Token::Number(number));
+            continue;
+        }
+
+        if ch.is_alphabetic() {
+            let mut id = String::new();
+            while let Some(&c) = chars.peek() {
+                if c.is_alphanumeric() || c == '_' {
+                    id.push(chars.next().unwrap());
+                } else {
+                    break;
+                }
+            }
+            tokens.push(Token::ID(id));
+            continue;
+        }
+
+        chars.next();
+    }
+    tokens
+}
+
+pub fn parse(
+    grammar: &Grammer,
+    tokens: &Vec<Token>,
+    rule_name: String,
+    cursor: usize,
+) -> Option<AstNode> {
+    let current_rule: &Rule = grammar.rules.get(&rule_name).expect("Rule not defined");
+    println!("{:?}", current_rule);
+    let mut children = Vec::new();
+
+    for part in &current_rule.parts {
+        match part {
+            GrammerPart::Base(val) => {
+                let current_token = tokens.get(cursor).expect("Cursor out of range");
+                if val == TokenType::Number && *current_token == Token::Number(_) {
+                    children.push(AstNode {
+                        rule_name: rule_name.to_string(),
+                        value: Some(current_token.get_value()),
+                        children: vec![],
+                    });
+                } else if val == TokenType::ID && *current_token == Token::ID(_) {
+                    children.push(AstNode {
+                        rule_name: rule_name.to_string(),
+                        value: Some(current_token.get_value()),
+                        children: vec![],
+                    });
+                } else {
+                    panic!("Invalid expression");
+                }
+            }
+            GrammerPart::NonTerminal(term) => {}
+            GrammerPart::Terminal(term) => {
+                let current_token = tokens.get(cursor).expect("Cursor out of range");
+                if current_token.get_value() == *term {
+                    children.push(AstNode {
+                        rule_name: rule_name.to_string(),
+                        value: Some(current_token.get_value()),
+                        children: vec![],
+                    });
+                } else {
+                    panic!("Invalid expression");
+                }
+            }
+            GrammerPart::Choice(choices) => {}
+            GrammerPart::Group(parts) => {}
+            GrammerPart::Optiona(parts) => {}
+            GrammerPart::Repeat(parts) => {}
+        }
+    }
+    None
+}
 fn main() {
     let args = env::args().collect::<Vec<String>>();
     let mut grammer_file = args.get(1);
+    let mut expression = args.get(2);
     match grammer_file {
         Some(file) => {
             if let Ok(mut file_bytes) = fs::read_to_string(file) {
                 let grammer = build_grammer(&mut file_bytes);
-                dbg!("{:?}", &grammer)
+                dbg!("{:?}", &grammer);
+                if expression.is_none() {
+                    panic!("Expression must be provided to the lexer");
+                }
+                if grammer.is_none() {
+                    panic!("Grammer failed parsing");
+                }
+                let actual_grammar = grammer.unwrap();
+                let tokens = lex(&actual_grammar, expression.unwrap().clone());
+                println!("{:?}", tokens);
+                let ast = parse(
+                    &actual_grammar,
+                    &tokens,
+                    actual_grammar.start_rule.clone(),
+                    0,
+                );
+                println!("{:?}", ast);
             } else {
                 panic!("Unable to read file")
             };

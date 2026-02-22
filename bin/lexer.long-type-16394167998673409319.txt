@@ -1,0 +1,1 @@
+Cloned<&mut impl Iterator<Item = char>>
