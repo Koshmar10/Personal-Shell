@@ -5,6 +5,7 @@ use std::fs;
 use std::io;
 use std::io::Write;
 use std::path::Iter;
+use std::sync::RwLock;
 
 #[derive(Debug, Clone)]
 pub enum TokenType {
@@ -18,7 +19,7 @@ pub enum GrammerPart {
     NonTerminal(String),
     Choice(Vec<Vec<GrammerPart>>),
     Repeat(Vec<GrammerPart>),
-    Optiona(Vec<GrammerPart>),
+    Optional(Vec<GrammerPart>),
     Group(Vec<GrammerPart>),
 }
 
@@ -51,6 +52,7 @@ pub enum Token {
     Symbol(String),
     Number(String),
     ID(String),
+    END,
 }
 impl Token {
     pub fn get_value(&self) -> String {
@@ -58,14 +60,29 @@ impl Token {
             Token::Symbol(val) => val.clone(),
             Token::Number(val) => val.clone(),
             Token::ID(val) => val.clone(),
+            Token::END => "END".to_string(),
+        }
+    }
+    pub fn matches(&self, grammer_part: &GrammerPart) -> bool {
+        match (self, grammer_part) {
+            (Token::Symbol(s), GrammerPart::Terminal(t)) => s == t,
+            (Token::Number(n), GrammerPart::Base(TokenType::Number)) => true,
+            (Token::ID(s), GrammerPart::Base(TokenType::ID)) => true,
+
+            _ => false,
+        }
+    }
+    pub fn is_end(&self) -> bool {
+        match self {
+            Token::END => true,
+            _ => false,
         }
     }
 }
 #[derive(Debug, Clone)]
-pub struct AstNode {
-    pub rule_name: String,
+pub struct CstNode {
     pub value: Option<String>,
-    pub children: Vec<AstNode>,
+    pub children: Vec<CstNode>,
 }
 
 pub fn consume_until(chars: &mut impl Iterator<Item = char>, until: char) -> String {
@@ -85,7 +102,7 @@ pub fn parse_rule(chars: &mut impl Iterator<Item = char>) -> Vec<GrammerPart> {
     let mut all_seq: Vec<Vec<GrammerPart>> = Vec::new();
     while let Some(item) = chars.next() {
         match item {
-            '}' | ')' => break,
+            '}' | ')' | ']' => break,
             '<' => {
                 let result = consume_until(chars, '>');
                 current_seq.push(GrammerPart::NonTerminal(result));
@@ -107,6 +124,30 @@ pub fn parse_rule(chars: &mut impl Iterator<Item = char>) -> Vec<GrammerPart> {
                 let result = parse_rule(chars);
                 current_seq.push(GrammerPart::Group(result));
             }
+            '[' => {
+                let result = parse_rule(chars);
+                current_seq.push(GrammerPart::Optional(result));
+            }
+            c if c.is_alphabetic() => {
+                let word = {
+                    let mut new_str = String::new();
+                    new_str.push(c);
+                    while let Some(next_c) = chars.next() {
+                        if next_c.is_alphabetic() {
+                            new_str.push(next_c);
+                        } else {
+                            break;
+                        }
+                    }
+                    new_str
+                };
+                match word.as_str() {
+                    "NUMBER" => current_seq.push(GrammerPart::Base(TokenType::Number)),
+                    "ID" => current_seq.push(GrammerPart::Base(TokenType::ID)),
+                    _ => {}
+                }
+            }
+
             _ => continue,
         }
     }
@@ -144,20 +185,10 @@ pub fn build_grammer(grammer_str: &mut String) -> Option<Grammer> {
                 grammer.start_rule = rule_name.clone();
             }
             let mut rule_str = rule_str.trim();
+            let mut char_iter = rule_str.chars().peekable();
             let grammer_rule = Rule {
                 name: rule_name.clone(),
-                parts: {
-                    let trimmed_rule = rule_str.trim();
-
-                    if trimmed_rule == "STRING" {
-                        vec![GrammerPart::Base(TokenType::ID)]
-                    } else if trimmed_rule == "NUMBER" {
-                        vec![GrammerPart::Base(TokenType::Number)]
-                    } else {
-                        let mut char_iter = rule_str.chars().peekable();
-                        parse_rule(&mut char_iter)
-                    }
-                },
+                parts: parse_rule(&mut char_iter),
             };
             grammer.rules.insert(rule_name, grammer_rule);
         } else {
@@ -200,7 +231,6 @@ pub fn lex(grammar: &Grammer, expression: String) -> Vec<Token> {
         if matched_terminal {
             continue;
         }
-
         if ch.is_ascii_digit() {
             let mut number = String::new();
             while let Some(&c) = chars.peek() {
@@ -225,63 +255,120 @@ pub fn lex(grammar: &Grammer, expression: String) -> Vec<Token> {
             }
             tokens.push(Token::ID(id));
             continue;
+        } else {
+            panic!("Unrecognized charather");
         }
 
         chars.next();
     }
+    tokens.push(Token::END);
     tokens
 }
 
-pub fn parse(
+fn parser(
     grammar: &Grammer,
-    tokens: &Vec<Token>,
-    rule_name: String,
-    cursor: usize,
-) -> Option<AstNode> {
-    let current_rule: &Rule = grammar.rules.get(&rule_name).expect("Rule not defined");
-    println!("{:?}", current_rule);
-    let mut children = Vec::new();
-
-    for part in &current_rule.parts {
-        match part {
-            GrammerPart::Base(val) => {
-                let current_token = tokens.get(cursor).expect("Cursor out of range");
-                if val == TokenType::Number && *current_token == Token::Number(_) {
-                    children.push(AstNode {
-                        rule_name: rule_name.to_string(),
-                        value: Some(current_token.get_value()),
-                        children: vec![],
-                    });
-                } else if val == TokenType::ID && *current_token == Token::ID(_) {
-                    children.push(AstNode {
-                        rule_name: rule_name.to_string(),
-                        value: Some(current_token.get_value()),
-                        children: vec![],
-                    });
-                } else {
-                    panic!("Invalid expression");
-                }
-            }
-            GrammerPart::NonTerminal(term) => {}
-            GrammerPart::Terminal(term) => {
-                let current_token = tokens.get(cursor).expect("Cursor out of range");
-                if current_token.get_value() == *term {
-                    children.push(AstNode {
-                        rule_name: rule_name.to_string(),
-                        value: Some(current_token.get_value()),
-                        children: vec![],
-                    });
-                } else {
-                    panic!("Invalid expression");
-                }
-            }
-            GrammerPart::Choice(choices) => {}
-            GrammerPart::Group(parts) => {}
-            GrammerPart::Optiona(parts) => {}
-            GrammerPart::Repeat(parts) => {}
-        }
+    tokens: &[Token],
+    parts: Vec<GrammerPart>,
+    mut cursor: &mut usize,
+) -> Option<CstNode> {
+    if tokens.len() <= 1 || *cursor >= tokens.len() {
+        return None;
     }
-    None
+
+    let current_token = &tokens[*cursor];
+    let mut children: Vec<CstNode> = Vec::new();
+    dbg!(current_token);
+    if !current_token.is_end() {
+        for part in parts {
+            match part {
+                GrammerPart::Base(_) | GrammerPart::Terminal(_) => {
+                    if current_token.matches(&part) {
+                        children.push(CstNode {
+                            value: Some(current_token.get_value()),
+                            children: vec![],
+                        });
+                        *cursor += 1;
+                    } else {
+                        return None;
+                    };
+                }
+                GrammerPart::NonTerminal(term) => {
+                    let new_rule: &Rule = &grammar.rules.get(&term).expect("Missing rule for term");
+
+                    let new_parts = new_rule.parts.clone();
+
+                    if let Some(child) = parser(grammar, tokens, new_parts, cursor) {
+                        children.push(child);
+                    } else {
+                        return None;
+                    }
+                }
+                GrammerPart::Repeat(sub_parts) => {
+                    if sub_parts.len() > 1 {
+                        let (entry_part, rest_of_subseq) = sub_parts.split_at(1);
+                        while let Some(first_child) =
+                            parser(grammar, tokens, entry_part.to_vec(), &mut cursor)
+                        {
+                            match parser(grammar, tokens, rest_of_subseq.to_vec(), &mut cursor) {
+                                Some(second_child) => {
+                                    children.extend(vec![first_child, second_child]);
+                                }
+                                None => return None,
+                            }
+                        }
+                    } else {
+                        while let Some(first_child) =
+                            parser(grammar, tokens, sub_parts.clone(), &mut cursor)
+                        {
+                            children.push(first_child);
+                        }
+                    }
+                }
+                GrammerPart::Choice(choices) => {
+                    for choice in &choices {
+                        if let Some(choice_child) =
+                            parser(grammar, tokens, choice.clone(), &mut cursor)
+                        {
+                            children.push(choice_child);
+                            break;
+                        }
+                    }
+                }
+                GrammerPart::Optional(option) => {
+                    if let Some(option_child) = parser(grammar, tokens, option.clone(), &mut cursor)
+                    {
+                        children.push(option_child);
+                    }
+                }
+                GrammerPart::Group(group) => {
+                    if let Some(group_child) = parser(grammar, tokens, group.clone(), &mut cursor) {
+                        children.push(group_child);
+                    } else {
+                        return None;
+                    }
+                }
+            }
+        }
+        return Some(CstNode {
+            value: None,
+            children: children,
+        });
+    }
+    return None;
+}
+fn parse_expression(grammar: &Grammer, tokens: &[Token]) -> CstNode {
+    let mut cursor = 0;
+    let start_rule: &Rule = &grammar
+        .rules
+        .get(&grammar.start_rule)
+        .expect("Missing rule for term");
+
+    let start_parts = start_rule.parts.clone();
+    if let Some(cst) = parser(grammar, tokens, start_parts, &mut cursor) {
+        return cst;
+    } else {
+        panic!("Failed to parse expression")
+    }
 }
 fn main() {
     let args = env::args().collect::<Vec<String>>();
@@ -299,15 +386,11 @@ fn main() {
                     panic!("Grammer failed parsing");
                 }
                 let actual_grammar = grammer.unwrap();
+
                 let tokens = lex(&actual_grammar, expression.unwrap().clone());
-                println!("{:?}", tokens);
-                let ast = parse(
-                    &actual_grammar,
-                    &tokens,
-                    actual_grammar.start_rule.clone(),
-                    0,
-                );
-                println!("{:?}", ast);
+                println!("{:?}", &tokens);
+                let cst = parse_expression(&actual_grammar, &tokens);
+                dbg!(cst);
             } else {
                 panic!("Unable to read file")
             };

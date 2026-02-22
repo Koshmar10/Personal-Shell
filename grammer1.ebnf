@@ -1,0 +1,2 @@
+<expression> ::= <value> { ("+" | "-") <value> [ "x" ] };
+<value>      ::= ID | NUMBER;

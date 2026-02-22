@@ -2,6 +2,4 @@
 <expression> ::= <term> { ("+" | "-") <term> };
 <term> ::= <power> { ( "*" | "/") <power> };
 <power> ::= <identifier> {"**" <identifier>};
-<identifier> ::= <id> | <number> | "(" <expression> ")";
-<id> ::= STRING;
-<number> ::= NUMBER;
+<identifier> ::= ID | NUMBER | "(" <expression> ")";

@@ -1,0 +1,2 @@
+Option<Option<<&mut impl Iterator<Item = char> as Iterator>::Item>>
+Peekable<&mut impl Iterator<Item = char>>
